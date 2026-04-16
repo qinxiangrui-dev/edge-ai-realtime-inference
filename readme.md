@@ -1,14 +1,17 @@
 ## 🏗️ System Architecture
-Capture Thread
-      ↓
-Preprocess Thread
-      ↓
-Inference Thread (TensorRT / GPU)
-      ↓
-Postprocess Thread (CPU)
-      ↓
-Display Thread
 
+```text
+[Capture Thread]
+        ↓
+[Preprocess Thread]
+        ↓
+[Inference Thread (TensorRT / GPU)]
+        ↓
+[Postprocess Thread (CPU)]
+        ↓
+[Display Thread]
+
+```
 Data flows through thread-safe queues with frame dropping strategy to ensure real-time performance.
 
 # 🚀 High-performance Real-time Edge AI Inference System
