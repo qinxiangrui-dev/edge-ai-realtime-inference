@@ -1,3 +1,14 @@
+# 🚀 High-performance Real-time Edge AI Inference System
+(TensorRT + Multi-thread + Asynchronous Pipeline)
+
+# Project Overview
+This project implements a high-performance real-time object detection system using TensorRT in C++.
+
+A multi-threaded pipeline is designed to decouple video capture, preprocessing, inference, and postprocessing. 
+Cross-frame asynchronous execution is introduced to overlap CPU and GPU workloads, significantly improving system throughput.
+
+The system achieves stable real-time performance (~30+ FPS) on a desktop GPU.
+
 ## 🏗️ System Architecture
 
 ```text
@@ -13,26 +24,6 @@
 
 ```
 Data flows through thread-safe queues with frame dropping strategy to ensure real-time performance.
-
-# 🚀 High-performance Real-time Edge AI Inference System
-(TensorRT + Multi-thread + Asynchronous Pipeline)
-
-# Project Overview
-This project implements a high-performance real-time object detection system using TensorRT in C++.
-
-A multi-threaded pipeline is designed to decouple video capture, preprocessing, inference, and postprocessing. 
-Cross-frame asynchronous execution is introduced to overlap CPU and GPU workloads, significantly improving system throughput.
-
-The system achieves stable real-time performance (~30+ FPS) on a desktop GPU.
-
-# System Architecture
-The system follows a producer-consumer architecture with multiple threads:
-
-Capture Thread → Preprocess Thread → Inference Thread → Postprocess Thread → Display Thread
-                        ↓
-                    Task Queue
-                        ↓
-              GPU (TensorRT Stream Execution)
 
 # Pipeline Design
 - Producer: continuously captures frames
