@@ -31,8 +31,6 @@ Capture → Preprocess → Inference (GPU) → Postprocess → Display
 - Thread-safe queues with backpressure control
 - Frame dropping strategy for real-time stability
 
-Data flows through thread-safe queues with frame dropping strategy to ensure real-time performance.
-
 ## Pipeline Design
 - Producer: continuously captures frames
 - Preprocess: letterbox, normalization, CHW conversion
