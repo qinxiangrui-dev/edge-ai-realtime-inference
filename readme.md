@@ -1,33 +1,40 @@
-# 🚀 High-performance Real-time Edge AI Inference System
+# 🚀 High-Throughput Real-Time Edge AI Inference System  
 (TensorRT + Multi-thread + Asynchronous Pipeline)
 
-## Demo (Real-time)
+## 🎬 Demo (Real-time Mode ~25 FPS)
 
 ![demo](demo_25fps.gif)
 
-# Project Overview
-This project implements a high-performance real-time object detection system using TensorRT in C++.
+## ⚡ High Throughput Mode (~60+ FPS)
 
-A multi-threaded pipeline is designed to decouple video capture, preprocessing, inference, and postprocessing. 
-Cross-frame asynchronous execution is introduced to overlap CPU and GPU workloads, significantly improving system throughput.
+The system can run significantly faster in offline mode by fully utilizing GPU through pipeline overlap.
 
-The system achieves stable real-time performance (~30+ FPS) on a desktop GPU.
+![fast](demo_60fps.gif)
+
+## 📌 Project Overview
+
+This project implements a high-performance edge AI inference system using TensorRT in C++.
+
+A multi-threaded pipeline is designed to decouple capture, preprocessing, inference, and postprocessing.  
+Cross-frame asynchronous execution enables CPU-GPU overlap, significantly improving throughput.
+
+The system supports:
+- Real-time mode (~25 FPS)
+- High-throughput mode (~60+ FPS)
 
 ## 🏗️ System Architecture
 
 ```text
-[Capture Thread]
-        ↓
-[Preprocess Thread]
-        ↓
-[Inference(TensorRT / GPU) + Postprocess Thread (CPU)]
-        ↓
-[Display Thread]
+Capture → Preprocess → Inference (GPU) → Postprocess → Display
 
 ```
+- Multi-thread pipeline
+- Thread-safe queues with backpressure control
+- Frame dropping strategy for real-time stability
+
 Data flows through thread-safe queues with frame dropping strategy to ensure real-time performance.
 
-# Pipeline Design
+## Pipeline Design
 - Producer: continuously captures frames
 - Preprocess: letterbox, normalization, CHW conversion
 - Inference: TensorRT FP16 execution on GPU
@@ -37,37 +44,35 @@ Data flows through thread-safe queues with frame dropping strategy to ensure rea
 Data is passed through Task structures across threads.
 Frame dropping is applied to ensure real-time performance.
 
-# Performance optimization
-Performance improvements through different stages:
+## 📊 Performance
 
+### Final Performance
+- Real-time mode: ~25 FPS
+- Throughput mode: ~60+ FPS
+- Inference (GPU kernel): ~2–3 ms
+- Preprocess: ~3 ms
+- Postprocess: ~9 ms
+
+### Optimization Steps
 | Stage                      | FPS       |
 |---------------------------|----------|
 | Single-thread baseline     | ~5 FPS    |
 | Multi-thread pipeline      | ~10 FPS   |
 | TensorRT FP16 inference    | ~20 FPS   |
-| Cross-frame async (overlap)| ~30+ FPS  |
+| Async pipeline overlap     | ~30+ FPS  |
 
-Key optimizations:
-- Eliminated CPU-GPU synchronization bottleneck
-- Implemented double buffering
-- Introduced frame dropping strategy
-- Avoided runtime memory allocation (cudaMalloc)
+## 💡 Technical Highlights
 
-# Technical Highlights
-- Multi-threaded real-time inference pipeline design
-- Cross-frame asynchronous execution (CPU/GPU overlap)
-- TensorRT FP16 acceleration
+- Multi-threaded pipeline with backpressure control
+- Cross-frame asynchronous execution (CPU-GPU overlap)
 - Double buffering for efficient memory reuse
-- Real-time system design with frame dropping strategy
-- Performance bottleneck analysis (CPU-bound system)
+- TensorRT FP16 acceleration
+- Real-time vs high-throughput dual-mode design
+- End-to-end performance profiling (CPU + GPU)
 
-# Technology Stack
+## Technology Stack
 - C++
 - TensorRT
 - CUDA
 - OpenCV
 - Multi-threading (std::thread, mutex, condition_variable)
-
-## Demo
-
-![demo](demo.gif)
