@@ -1,6 +1,10 @@
 # 🚀 High-performance Real-time Edge AI Inference System
 (TensorRT + Multi-thread + Asynchronous Pipeline)
 
+## Demo (Real-time)
+
+![demo](demo_25fps.gif)
+
 # Project Overview
 This project implements a high-performance real-time object detection system using TensorRT in C++.
 
@@ -16,9 +20,7 @@ The system achieves stable real-time performance (~30+ FPS) on a desktop GPU.
         ↓
 [Preprocess Thread]
         ↓
-[Inference Thread (TensorRT / GPU)]
-        ↓
-[Postprocess Thread (CPU)]
+[Inference(TensorRT / GPU) + Postprocess Thread (CPU)]
         ↓
 [Display Thread]
 
