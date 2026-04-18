@@ -26,7 +26,6 @@ The system supports:
 
 ```text
 Capture → Preprocess → Inference (GPU) → Postprocess → Display
-
 ```
 - Multi-thread pipeline
 - Thread-safe queues with backpressure control
