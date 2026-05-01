@@ -3,13 +3,13 @@
 
 ## 🎬 Demo (Real-time Mode ~25 FPS)
 
-![demo](demo_25fps.gif)
+![demo](demo_jetson_25fps.gif)
 
 ## ⚡ High Throughput Mode (~60+ FPS)
 
 The system can run significantly faster in offline mode by fully utilizing GPU through pipeline overlap.
 
-![fast](demo_60fps.gif)
+![fast](demo_jetson_60fps.gif)
 
 ## 📌 Project Overview
 
