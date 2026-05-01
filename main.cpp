@@ -14,10 +14,21 @@
 
 using namespace nvinfer1;
 
+float smooth_pre = 0;
+float smooth_inf = 0;
+float smooth_post = 0;
+float alpha = 0.1; 
+
 struct LetterBoxInfo {
     float scale;
     int pad_w;
     int pad_h;
+};
+struct timeOFrun
+{
+    float fpre_ms;
+    float finference_ms;
+    float fpost_ms;
 };
 
 struct Task {
@@ -31,7 +42,6 @@ struct Detection {
     float conf;
     float x, y, w, h;
 };
-
 
 std::vector<char> loadEngine(const std::string& path) {
     std::ifstream file(path, std::ios::binary);
@@ -68,12 +78,15 @@ std::condition_variable cond_input;
 // 控制退出
 std::atomic<bool> running(true);
 double g_fps = 30.0;
-
+//限制队列长度 5
+const int MAX_QUEUE_SIZE = 5;
+//时间
+timeOFrun timeCase;
 
 float IoU(const Detection& a, const Detection& b);
 // ==================== 生产者线程 ====================
 void capture_thread() {
-    cv::VideoCapture cap("../OpenCV_test.mp4"); // 先用视频文件，避免摄像头问题
+    cv::VideoCapture cap("../output_fps60.mp4"); // 先用视频文件，避免摄像头问题
     //cv::VideoCapture cap(0);
     if (!cap.isOpened()) {
         std::cout << "Error: Cannot open video" << std::endl;
@@ -82,37 +95,45 @@ void capture_thread() {
         cond2.notify_all();
         return;
     }
-	
+    /******************************/
     cv::Mat frame;
 	g_fps = cap.get(cv::CAP_PROP_FPS);
+    std::cout << "g_fps: " << g_fps << std::endl;
 	if (g_fps <= 0) g_fps = 30.0;
 
 	int delay = 1000/g_fps;
 
+    auto frame_interval = std::chrono::milliseconds((int)(1000 / g_fps));
+    auto next_time = std::chrono::steady_clock::now();
     while (running) 
     {
+        //std::cout << "Capture frame" << std::endl;
         cap >> frame;
+
         if (frame.empty()) {
             running = false;
             cond1.notify_all();
             cond2.notify_all();
             break;
         }
-
+        next_time += frame_interval;
+        std::this_thread::sleep_until(next_time);
         // 入队  
         {     
             std::unique_lock<std::mutex> lock(mtx1);
+            cond1.wait(lock, [&] {
+                return frame_queue.size() < MAX_QUEUE_SIZE || !running;
+            });
             frame_queue.push(frame.clone());
-            //std::cout << "Queue size: " << frame_queue.size() << std::endl;
         }
         cond1.notify_one(); // 通知处理者
-	    //std::this_thread::sleep_for(std::chrono::milliseconds(delay));
     }
 }
 
 // ==================== 预处理线程 ====================
 void preprocess_thread() {
     while (running) {
+        //std::cout << "Preprocessed frame" << std::endl;
         cv::Mat frame;
         {
             std::unique_lock<std::mutex> lock(mtx1);
@@ -131,9 +152,13 @@ void preprocess_thread() {
 
             lock.unlock();
         }
+        cond1.notify_one();
 
         //🔥 预处理
         Task task;
+        /*********************************************/
+        auto t_pre_start = std::chrono::steady_clock::now();
+        /*******************************************/
         task.frame = frame.clone();
         cv::Mat img = frame.clone();
         task.lb = letterbox(frame, img);
@@ -150,8 +175,16 @@ void preprocess_thread() {
             640 * 640 * sizeof(float));
         }
         task.input = std::move(input);
+        /************************************************************/
+        auto t_pre_over = std::chrono::steady_clock::now();
+        timeCase.fpre_ms = std::chrono::duration<double, std::milli>(t_pre_over - t_pre_start).count();
+        //std::cout << "Time: " << timeCase.fpre_ms << " ms" << std::endl;
+        /**********************************************************/
         {
             std::unique_lock<std::mutex> lock(mtx_input);
+            cond_input.wait(lock, [&] {
+                return task_queue.size() < MAX_QUEUE_SIZE || !running;
+            });
             task_queue.push(std::move(task));
         }
         cond_input.notify_one();
@@ -192,41 +225,37 @@ void inference_thread() {
     IExecutionContext* context = engine->createExecutionContext();
 
     std::cout << "Engine loaded successfully!" << std::endl;
-    //绑定输入输出
+    //绑定输出
     for (int i = 0; i < engine->getNbIOTensors(); i++) {
     const char* name = engine->getIOTensorName(i);
     auto mode = engine->getTensorIOMode(name);
 
-        if (mode == TensorIOMode::kINPUT) {
-            context->setTensorAddress(name, inputDevice[0]);
-            context->setTensorAddress(name, inputDevice[1]);
-        } 
-        else if (mode == TensorIOMode::kOUTPUT) {
+    if (mode == TensorIOMode::kOUTPUT) {
 
-            // ⭐ 1. 获取 shape
-            nvinfer1::Dims dims = context->getTensorShape(name);
+        // ⭐ 1. 获取 shape
+        nvinfer1::Dims dims = context->getTensorShape(name);
 
-            // ⭐ 2. 计算 size
-            int size = 1;
-            for (int j = 0; j < dims.nbDims; j++) {
-                size *= dims.d[j];
-            }
-            //std::cout << "Output: " << name << " size = " << size << std::endl;
-            
-            // ⭐ 3. 分配 GPU 内存
-            float* outputDev;
-            cudaMalloc((void**)&outputDev, size * sizeof(float));
+        // ⭐ 2. 计算 size
+        int size = 1;
+        for (int j = 0; j < dims.nbDims; j++) {
+            size *= dims.d[j];
+        }
+        //std::cout << "Output: " << name << " size = " << size << std::endl;
+        
+        // ⭐ 3. 分配 GPU 内存
+        float* outputDev;
+        cudaMalloc((void**)&outputDev, size * sizeof(float));
 
-            // ⭐ 4. 绑定
-            context->setTensorAddress(name, outputDev);
+        // ⭐ 4. 绑定
+        context->setTensorAddress(name, outputDev);
 
-            // ⭐ 5. 保存
-            outputBuffers.push_back(outputDev);
-            outputNames.push_back(name);
-            outputSizes.push_back(size);
+        // ⭐ 5. 保存
+        outputBuffers.push_back(outputDev);
+        outputNames.push_back(name);
+        outputSizes.push_back(size);
         }
     }
-    int size = 2142000;
+    int size = outputSizes[0];
     float* outputHost[2];
     outputHost[0] = new float[size];
     outputHost[1] = new float[size];
@@ -234,7 +263,9 @@ void inference_thread() {
     //上一帧
     bool has_prev = false;
     Task prev_task;
+    int current_fps = 0;
     while (running) {
+        //std::cout << "Inference running" << std::endl;
         static int frame_count = 0;
         //当前帧索引
         int idx = frame_count % 2; 
@@ -248,6 +279,7 @@ void inference_thread() {
 
         if (sec >= 1.0f) {
             std::cout << "FPS: " << frame_count << std::endl;
+            current_fps = frame_count;
             frame_count = 0;
             t_start = t_now;
         }
@@ -255,13 +287,17 @@ void inference_thread() {
         std::vector<Detection> detections;
         if (has_prev){
             cudaStreamSynchronize(stream);  //CPU在这里等待推理完成
+            std::cout << "One Pic inf Done" << std::endl;
+            cudaEventElapsedTime(&timeCase.finference_ms, start, stop);
+            /*********************************************/
+            auto t_post_start = std::chrono::steady_clock::now();
+            /*******************************************/
             int stride = 85;
             float* data = outputHost[prev];
-            
+
             for (int k = 0; k < 25200; k++) {
                 float *Current_Box = data + k * stride;
                 float obj = data[k * stride + 4];
-                if (obj < 0.9) continue;
                 if (obj > 0.5) {
                     float max_class_score = 0;
                     int class_id = -1;
@@ -285,6 +321,7 @@ void inference_thread() {
                     /*已经通过置信度筛选成功了，现在是需要开始进行NMS，然后画框*/
                 }
             }
+            //std::cout << "First output value: " << outputHost[prev][0] << std::endl;
             /*开始NMS(去重框)*/
             //先排序
             std::sort(detections.begin(), detections.end(),
@@ -340,6 +377,60 @@ void inference_thread() {
                             cv::Scalar(0, 255, 0),
                             1);
             }
+            /*********************************************/
+            auto t_post_over = std::chrono::steady_clock::now();
+            timeCase.fpost_ms = std::chrono::duration<double, std::milli>(t_post_over - t_post_start).count();
+            /*******************************************/
+            // 🔥 UI 🔥
+            cv::rectangle(prev_task.frame, cv::Point(10,10), cv::Point(300,100),
+                            cv::Scalar(40,40,40), -1);
+            std::string fps_text;
+            if(current_fps == 0){
+                fps_text = "FPS: ...";
+            }
+            else{
+                fps_text = "FPS: " + std::to_string(current_fps);
+            }
+            
+            cv::putText(prev_task.frame, fps_text,
+                cv::Point(20, 40),
+                cv::FONT_HERSHEY_SIMPLEX,
+                0.7,
+                cv::Scalar(0,255,0),
+                2);
+            smooth_pre  = smooth_pre  * (1 - alpha) + timeCase.fpre_ms  * alpha;
+            smooth_inf  = smooth_inf  * (1 - alpha) + timeCase.finference_ms  * alpha;
+            smooth_post = smooth_post * (1 - alpha) + timeCase.fpost_ms * alpha;
+            char buffer[100];
+            sprintf(buffer, "Pre: %.1f ms  Inf: %.1f ms", smooth_pre, smooth_inf);
+            std::string line2 = buffer;
+
+            sprintf(buffer, "Post: %.1f ms", smooth_post);
+            std::string line3 = buffer;
+
+            cv::putText(prev_task.frame, line2,
+                        cv::Point(20, 65),
+                        cv::FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        cv::Scalar(255,255,255),
+                        1);
+
+            cv::putText(prev_task.frame, line3,
+                        cv::Point(20, 90),
+                        cv::FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        cv::Scalar(255,255,255),
+                        1);
+        }
+
+        //绑定输入输出
+        for (int i = 0; i < engine->getNbIOTensors(); i++) {
+        const char* name = engine->getIOTensorName(i);
+        auto mode = engine->getTensorIOMode(name);
+
+            if (mode == TensorIOMode::kINPUT) {
+                context->setTensorAddress(name, inputDevice[idx]);
+            } 
         }
 
         /*取当前帧*/
@@ -352,7 +443,7 @@ void inference_thread() {
         Task task = task_queue.front();
         task_queue.pop();
         lock.unlock();
-        
+        cond_input.notify_one();
         // 🔥 提交当前帧
         memcpy(inputHost[idx], task.input.data(), task.input.size() * sizeof(float));
         
@@ -360,14 +451,14 @@ void inference_thread() {
                 inputSize * sizeof(float),
                 cudaMemcpyHostToDevice,
                 stream);
-
+        cudaEventRecord(start, stream);
         context->enqueueV3(stream);
-
+        cudaEventRecord(stop, stream);
         cudaMemcpyAsync(outputHost[idx], outputBuffers[0],
                 size * sizeof(float),
                 cudaMemcpyDeviceToHost,
                 stream);
-
+        //cudaStreamSynchronize(stream);  
         
         // 放入第二个队列
         if(has_prev)
@@ -376,7 +467,8 @@ void inference_thread() {
             while (process_queue.size() > 1) {
                 process_queue.pop();
             }
-            process_queue.push(prev_task.frame.clone());     
+            process_queue.push(prev_task.frame.clone()); 
+            std::cout << "notify display\n";    
             cond2.notify_one();
         }
         prev_task = task;
@@ -401,14 +493,28 @@ int main() {
     std::thread t2(preprocess_thread);
     std::thread t3(inference_thread);
 
-    int delay = 1;
-	//if (g_fps > 0) delay = 1000 / g_fps;
+    int delay = 40;
+	if (g_fps > 0) delay = 1000 / g_fps;
+    cv::VideoWriter writer;
+
+    int width =  1392;   // 或固定 640
+    int height = 512;
+
+    writer.open("jetson_demo.mp4",
+                cv::VideoWriter::fourcc('m','p','4','v'),
+                25,   // 推荐25 FPS（展示用）
+                cv::Size(width, height));
+    if (!writer.isOpened()) {
+        std::cout << "Writer open failed!" << std::endl;
+    }
+
     while (running) {
+        std::cout << "Display frame" << std::endl;
         std::unique_lock<std::mutex> lock(mtx2);
 
         // 等待队列有数据
         cond2.wait(lock, [&] { return !process_queue.empty() || !running; });
-
+        auto t_display_0 = std::chrono::steady_clock::now();
         if (!running && process_queue.empty())
             break;
         cv::Mat frame = process_queue.front();
@@ -416,9 +522,14 @@ int main() {
 
         lock.unlock(); // 早点释放锁（很重要）
 
-        cv::imshow("Video", frame);
-
-        if (cv::waitKey(delay) == 27) {
+        //cv::imshow("Video", frame);
+        writer.write(frame);
+        /************************************************************/
+        // auto t_display_1 = std::chrono::steady_clock::now();
+        // float fdispaly_ms = std::chrono::duration<double, std::milli>(t_display_1 - t_display_0).count();
+        // std::cout << "display " << fdispaly_ms << "ms" << std::endl;
+        /***************************************************/
+        if (cv::waitKey(1) == 27) {
             running = false;
             cond1.notify_all();
             cond2.notify_all();
@@ -428,6 +539,8 @@ int main() {
     t1.join();
     t2.join();
     t3.join();
+
+    //writer.release();
     return 0;
 }
 
