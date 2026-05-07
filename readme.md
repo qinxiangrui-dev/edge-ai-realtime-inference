@@ -41,7 +41,7 @@ Capture → Preprocess → Inference (GPU) → Postprocess → Display
 Data is passed through Task structures across threads.
 Frame dropping is applied to ensure real-time performance.
 
-## Performance Comparison
+## Quant Performance Comparison
 
 | Precision | Avg Inference Time | Improvement |
 |------------|-------------------|--------------|
