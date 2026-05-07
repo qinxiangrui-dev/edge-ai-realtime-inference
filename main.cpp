@@ -178,7 +178,7 @@ void preprocess_thread() {
         /************************************************************/
         auto t_pre_over = std::chrono::steady_clock::now();
         timeCase.fpre_ms = std::chrono::duration<double, std::milli>(t_pre_over - t_pre_start).count();
-        //std::cout << "Time: " << timeCase.fpre_ms << " ms" << std::endl;
+        //std::cout << "Preprocess Time: " << timeCase.fpre_ms << " ms" << std::endl;
         /**********************************************************/
         {
             std::unique_lock<std::mutex> lock(mtx_input);
@@ -213,8 +213,8 @@ void inference_thread() {
     cudaEventCreate(&stop);
 
     // 1️⃣ 读取 engine
-    auto engineData = loadEngine("../yolov5n_fp16.engine");
-
+    //auto engineData = loadEngine("yolov5n_fp16.engine");
+    auto engineData = loadEngine("yolov5n_int8.engine");
     // 2️⃣ 创建 runtime
     IRuntime* runtime = createInferRuntime(logger);
 
@@ -287,8 +287,9 @@ void inference_thread() {
         std::vector<Detection> detections;
         if (has_prev){
             cudaStreamSynchronize(stream);  //CPU在这里等待推理完成
-            std::cout << "One Pic inf Done" << std::endl;
+            //std::cout << "One Pic inf Done" << std::endl;
             cudaEventElapsedTime(&timeCase.finference_ms, start, stop);
+            std::cout << "Inf Time: " << timeCase.finference_ms << " ms" << std::endl;
             /*********************************************/
             auto t_post_start = std::chrono::steady_clock::now();
             /*******************************************/
@@ -298,7 +299,7 @@ void inference_thread() {
             for (int k = 0; k < 25200; k++) {
                 float *Current_Box = data + k * stride;
                 float obj = data[k * stride + 4];
-                if (obj > 0.5) {
+                if (obj > 0.5f) {
                     float max_class_score = 0;
                     int class_id = -1;
                     
@@ -311,7 +312,7 @@ void inference_thread() {
                         }
                     }
                     float final_conf = obj * max_class_score;
-                    if (final_conf < 0.5) continue;
+                    if (final_conf < 0.5f) continue;
 
                     float x = data[k * stride + 0];
                     float y = data[k * stride + 1];
@@ -321,6 +322,7 @@ void inference_thread() {
                     /*已经通过置信度筛选成功了，现在是需要开始进行NMS，然后画框*/
                 }
             }
+            //std::cout << detections.size() << std::endl;
             //std::cout << "First output value: " << outputHost[prev][0] << std::endl;
             /*开始NMS(去重框)*/
             //先排序
@@ -380,6 +382,7 @@ void inference_thread() {
             /*********************************************/
             auto t_post_over = std::chrono::steady_clock::now();
             timeCase.fpost_ms = std::chrono::duration<double, std::milli>(t_post_over - t_post_start).count();
+            //std::cout << "Post Time: " << timeCase.fpost_ms << " ms" << std::endl;
             /*******************************************/
             // 🔥 UI 🔥
             cv::rectangle(prev_task.frame, cv::Point(10,10), cv::Point(300,100),
@@ -468,7 +471,7 @@ void inference_thread() {
                 process_queue.pop();
             }
             process_queue.push(prev_task.frame.clone()); 
-            std::cout << "notify display\n";    
+            //std::cout << "notify display\n";    
             cond2.notify_one();
         }
         prev_task = task;
@@ -509,7 +512,7 @@ int main() {
     }
 
     while (running) {
-        std::cout << "Display frame" << std::endl;
+        //std::cout << "Display frame" << std::endl;
         std::unique_lock<std::mutex> lock(mtx2);
 
         // 等待队列有数据
