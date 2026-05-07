@@ -41,6 +41,21 @@ Capture → Preprocess → Inference (GPU) → Postprocess → Display
 Data is passed through Task structures across threads.
 Frame dropping is applied to ensure real-time performance.
 
+## Performance Comparison
+
+| Precision | Avg Inference Time | Improvement |
+|------------|-------------------|--------------|
+| FP16       | 4.316 ms          | Baseline     |
+| INT8       | 3.940 ms          | ~8.7% Faster |
+
+### Profiling Method
+
+Performance measured using NVIDIA Nsight Systems:
+
+```bash
+nsys profile --trace=cuda,nvtx,osrt -o report ./App
+```
+
 ## 📊 Performance
 
 ### Final Performance
